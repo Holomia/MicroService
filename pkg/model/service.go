@@ -91,6 +91,6 @@ type GetDateTimeResponse struct {
 
 // 客户端信息响应
 type GetInfoResponse struct {
-	Error  string `json:"error"`
-	Result string `json:"result"`
+	Error  *string     `json:"error"`
+	Result interface{} `json:"result"`
 }

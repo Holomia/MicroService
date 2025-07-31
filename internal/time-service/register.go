@@ -2,12 +2,10 @@ package timeservice
 
 //调用api/register
 import (
-	"fmt"
-	"net" // 仍然保留 getLocalIP 以备自动检测回退
-
 	"MicroService/pkg/httpclient"
 	"MicroService/pkg/model"
 	"MicroService/pkg/util"
+	"fmt"
 )
 
 // RegisterService 向注册中心注册服务
@@ -20,7 +18,7 @@ func RegisterService(registryAddr, serviceName, ipAddress string, port int) (str
 	if finalIPAddr == "" {
 		// 如果未手动指定，则尝试自动获取
 		var err error
-		finalIPAddr, err = GetLocalIP()
+		finalIPAddr, err = util.GetLocalIP()
 		if err != nil {
 			return "", fmt.Errorf("failed to get local IP address and no explicit IP was provided: %v", err)
 		}
@@ -51,18 +49,18 @@ func RegisterService(registryAddr, serviceName, ipAddress string, port int) (str
 	return serviceId, nil
 }
 
-// getLocalIP 获取本机非环回 IPv4 地址 (作为回退/自动检测使用)
-func GetLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-	for _, address := range addrs {
-		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String(), nil
-			}
-		}
-	}
-	return "", fmt.Errorf("no non-loopback IPv4 address found")
-}
+//// getLocalIP 获取本机非环回 IPv4 地址 (作为回退/自动检测使用)
+//func GetLocalIP() (string, error) {
+//	addrs, err := net.InterfaceAddrs()
+//	if err != nil {
+//		return "", err
+//	}
+//	for _, address := range addrs {
+//		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+//			if ipnet.IP.To4() != nil {
+//				return ipnet.IP.String(), nil
+//			}
+//		}
+//	}
+//	return "", fmt.Errorf("no non-loopback IPv4 address found")
+//}

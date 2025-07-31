@@ -1,6 +1,7 @@
 package main // 这是正确的，表示这是一个可执行程序
 
 import (
+	"MicroService/pkg/util"
 	"fmt"      // 导入 fmt 包以使用 fmt.Sprintf
 	"net/http" // 导入 net/http 包，以便引用 http.ErrServerClosed
 
@@ -41,7 +42,7 @@ func main() {
 	} else {
 		var err error
 		// 注意：getLocalIP() 在 internal/time-service 包中，需要正确引用
-		currentIPAddress, err = timeservice.GetLocalIP()
+		currentIPAddress, err = util.GetLocalIP()
 		if err != nil {
 			logrus.Fatalf("Failed to get local IP address: %v", err)
 		}
