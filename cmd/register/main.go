@@ -1,6 +1,7 @@
 package main
 
 import (
+	config2 "MicroService/internal/register/config"
 	"fmt"
 
 	"github.com/gin-gonic/gin"
@@ -11,7 +12,7 @@ import (
 
 func main() {
 	// 加载配置
-	config := LoadConfig()
+	config := config2.LoadConfig()
 
 	// 初始化注册中心
 	regConfig := register.Config{
