@@ -52,6 +52,9 @@ func (r *Register) UnregisterHandler(c *gin.Context) {
 	// 删除服务
 	r.DeleteService(service.ServiceId)
 
+	// 新增：异步同步到其他对等节点
+	r.syncToPeers(stored, "unregister") // 注意这里使用 stored 对象，以确保信息完整
+
 	// 返回成功响应
 	c.JSON(http.StatusOK, model.RegisterServiceResponse{
 		Message: "Service unregistered successfully",

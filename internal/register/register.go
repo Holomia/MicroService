@@ -22,17 +22,20 @@ type Register struct {
 	roundRobinMu  sync.RWMutex       // 保护 roundRobin 映射
 	heartbeatTTL  time.Duration      // 心跳超时时间
 	cleanupPeriod time.Duration      // 清理周期
+
+	Peers []string
 }
 
 // NewRegister 创建并初始化注册中心
 // NewRegister 创建并初始化注册中心
-func NewRegister(config Config) *Register {
+func NewRegister(config Config, peers []string) *Register {
 	r := &Register{
 		services:      sync.Map{},
 		roundRobin:    make(map[string]*uint64),
 		roundRobinMu:  sync.RWMutex{},
 		heartbeatTTL:  config.HeartbeatTTL,
 		cleanupPeriod: config.CleanupPeriod,
+		Peers:         peers, // 将对等节点地址列表传递给结构体
 	}
 	go r.startCleanup()
 	return r
@@ -80,6 +83,9 @@ func (r *Register) RegisterHandler(c *gin.Context) {
 	// 设置初始心跳时间
 	service.LastHeartbeat = time.Now()
 	r.StoreService(service)
+
+	// 新增：异步同步到其他对等节点
+	r.syncToPeers(service, "register")
 
 	// 返回成功响应
 	c.JSON(http.StatusOK, model.RegisterServiceResponse{
