@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"flag" // 导入 flag 包
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings" // 新增导入
 	"syscall"
 	"time"
 
@@ -22,25 +23,40 @@ import (
 func main() {
 	// 1. 定义命令行参数
 	portFlag := flag.Int("port", 0, "The port for the client service to listen on. Overrides config.")
-	registryAddrFlag := flag.String("registry-addr", "", "The address of the registry. Overrides config.")
+	// 新增一个支持逗号分隔地址列表的参数
+	registryAddrsFlag := flag.String("registry-addrs", "", "Comma-separated list of registry addresses (e.g., 'http://127.0.0.1:8180,http://127.0.0.1:8181'). Overrides config.")
+	// 保留旧参数
+	registryAddrFlag := flag.String("registry-addr", "", "The address of the registry. Deprecated. Use --registry-addrs instead.")
 	serviceIPFlag := flag.String("ip", "", "The service's IP address. Overrides config.")
-	flag.Parse() // 解析命令行参数
+	flag.Parse()
 
-	// 2. 加载配置（首先从环境变量和默认值）
+	// 2. 加载配置
 	cfg := config.LoadConfig()
 
 	// 3. 使用命令行参数覆盖配置
 	if *portFlag != 0 {
 		cfg.Port = *portFlag
 	}
-	if *registryAddrFlag != "" {
-		cfg.RegistryAddress = *registryAddrFlag
-	}
 	if *serviceIPFlag != "" {
 		cfg.IPAddress = *serviceIPFlag
 	}
 
-	// 4. 初始化日志
+	// 4. 解析注册中心地址列表，优先级：新参数 > 旧参数 > 配置文件
+	var registryAddrs []string
+	if *registryAddrsFlag != "" {
+		registryAddrs = strings.Split(*registryAddrsFlag, ",")
+	} else if *registryAddrFlag != "" {
+		registryAddrs = []string{*registryAddrFlag}
+	} else if cfg.RegistryAddress != "" {
+		registryAddrs = []string{cfg.RegistryAddress}
+	}
+
+	if len(registryAddrs) == 0 {
+		logrus.Fatalf("No registry addresses provided.")
+	}
+	logrus.Infof("Registry addresses: %v", registryAddrs)
+
+	// 5. 初始化日志
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -52,7 +68,7 @@ func main() {
 
 	logrus.Infof("Client service starting with config: %+v", cfg)
 
-	// 5. 初始化 HTTP 客户端
+	// 6. 初始化 HTTP 客户端
 	httpClientConfig := httpclient.Config{
 		Timeout:    cfg.HTTPClientTimeout,
 		MaxRetries: cfg.HTTPClientMaxRetries,
@@ -60,7 +76,7 @@ func main() {
 	}
 	httpClient := httpclient.NewClient(httpClientConfig)
 
-	// 6. 服务注册
+	// 7. 服务注册
 	clientIP := cfg.IPAddress
 	if clientIP == "" {
 		localIP, err := util.GetLocalIP()
@@ -70,8 +86,9 @@ func main() {
 		clientIP = localIP
 	}
 
+	// 传入地址列表
 	serviceID, err := client.RegisterService(
-		cfg.RegistryAddress,
+		registryAddrs,
 		cfg.ServiceName,
 		clientIP,
 		cfg.Port,
@@ -81,27 +98,29 @@ func main() {
 	}
 	logrus.Infof("Client service registered with ID: %s", serviceID)
 
-	// 7. 启动心跳
+	// 8. 启动心跳
+	// 传入地址列表
 	heartbeatStopChan := client.StartHeartbeat(
-		cfg.RegistryAddress,
+		registryAddrs,
 		serviceID,
 		clientIP,
 		cfg.Port,
 		cfg.HeartbeatInterval,
 	)
 
-	// 8. 配置 Gin 路由
+	// 9. 配置 Gin 路由
 	router := gin.Default()
 	router.Use(func(c *gin.Context) {
 		c.Set("serviceId", serviceID)
-		c.Set("registryAddr", cfg.RegistryAddress)
+		// 将地址列表传递给上下文，InfoHandler需要用它来做服务发现
+		c.Set("registryAddrs", registryAddrs)
 		c.Set("httpClient", httpClient)
 		c.Next()
 	})
 
 	router.GET("/api/getInfo", client.InfoHandler)
 
-	// 9. 启动 HTTP 服务器
+	// 10. 启动 HTTP 服务器
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{
 		Addr:    addr,
@@ -115,7 +134,7 @@ func main() {
 		}
 	}()
 
-	// 10. 优雅关闭
+	// 11. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
@@ -132,9 +151,10 @@ func main() {
 		logrus.Info("Client service stopped gracefully.")
 	}
 
-	// 11. 服务注销
+	// 12. 服务注销
+	// 传入地址列表
 	err = client.UnregisterService(
-		cfg.RegistryAddress,
+		registryAddrs,
 		cfg.ServiceName,
 		serviceID,
 		clientIP,

@@ -11,36 +11,36 @@ import (
 	"MicroService/pkg/model"
 )
 
-// StartHeartbeat 定期向注册中心发送客户端心跳
-func StartHeartbeat(registryAddr, serviceId, ipAddress string, port int, interval time.Duration) chan struct{} {
+func StartHeartbeat(registryAddrs []string, serviceId, ipAddress string, port int, interval time.Duration) chan struct{} {
 	ticker := time.NewTicker(interval)
 	stopChan := make(chan struct{})
 
 	clientConfig := httpclient.DefaultConfig()
 	httpClient := httpclient.NewClient(clientConfig)
 
-	heartbeatURL := fmt.Sprintf("%s/api/heartbeat", registryAddr)
+	heartbeatReq := model.HeartbeatRequest{
+		ServiceId: serviceId,
+		IpAddress: ipAddress,
+		Port:      port,
+	}
 
 	go func() {
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				heartbeatReq := model.HeartbeatRequest{
-					ServiceId: serviceId,
-					IpAddress: ipAddress,
-					Port:      port,
-				}
-				var heartbeatResp model.HeartbeatResponse
-
-				err := httpClient.Post(heartbeatURL, heartbeatReq, &heartbeatResp, clientConfig)
-				if err != nil {
-					logrus.Errorf("Failed to send heartbeat for client service %s: %v", serviceId, err)
-				} else {
-					logrus.Debugf("Heartbeat sent successfully for client service: %s", heartbeatResp.ServiceId)
+				for _, registryAddr := range registryAddrs {
+					heartbeatURL := fmt.Sprintf("%s/api/heartbeat", registryAddr)
+					var heartbeatResp model.HeartbeatResponse
+					err := httpClient.Post(heartbeatURL, heartbeatReq, &heartbeatResp, clientConfig)
+					if err != nil {
+						logrus.Errorf("Failed to send heartbeat for service %s to %s: %v", serviceId, registryAddr, err)
+					} else {
+						logrus.Debugf("Heartbeat sent successfully for service: %s to %s", heartbeatResp.ServiceId, registryAddr)
+					}
 				}
 			case <-stopChan:
-				logrus.Infof("Heartbeat stopped for client service: %s", serviceId)
+				logrus.Infof("Heartbeat stopped for service: %s", serviceId)
 				return
 			}
 		}
