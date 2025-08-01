@@ -1,9 +1,8 @@
 package main
 
 import (
-	"MicroService/pkg/util"
 	"context"
-	"flag" // 依然保留，虽然此处不用于文件路径，但可以在未来用于其他命令行参数
+	"flag" // 导入 flag 包
 	"fmt"
 	"net/http"
 	"os"
@@ -11,21 +10,37 @@ import (
 	"syscall"
 	"time"
 
-	"MicroService/internal/client"        // 导入 client 业务逻辑包
-	"MicroService/internal/client/config" // 导入你的配置包
-	"MicroService/pkg/httpclient"         // 导入 HTTP 客户端
+	"MicroService/internal/client"
+	"MicroService/internal/client/config"
+	"MicroService/pkg/httpclient"
+	"MicroService/pkg/util"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus" // 确保你的日志库是 logrus
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	flag.Parse() // 如果没有命令行参数，这行代码仍然是无害的
+	// 1. 定义命令行参数
+	portFlag := flag.Int("port", 0, "The port for the client service to listen on. Overrides config.")
+	registryAddrFlag := flag.String("registry-addr", "", "The address of the registry. Overrides config.")
+	serviceIPFlag := flag.String("ip", "", "The service's IP address. Overrides config.")
+	flag.Parse() // 解析命令行参数
 
-	// 1. 加载配置 (直接从环境变量)
+	// 2. 加载配置（首先从环境变量和默认值）
 	cfg := config.LoadConfig()
 
-	// 2. 初始化日志
+	// 3. 使用命令行参数覆盖配置
+	if *portFlag != 0 {
+		cfg.Port = *portFlag
+	}
+	if *registryAddrFlag != "" {
+		cfg.RegistryAddress = *registryAddrFlag
+	}
+	if *serviceIPFlag != "" {
+		cfg.IPAddress = *serviceIPFlag
+	}
+
+	// 4. 初始化日志
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -37,7 +52,7 @@ func main() {
 
 	logrus.Infof("Client service starting with config: %+v", cfg)
 
-	// 3. 初始化 HTTP 客户端
+	// 5. 初始化 HTTP 客户端
 	httpClientConfig := httpclient.Config{
 		Timeout:    cfg.HTTPClientTimeout,
 		MaxRetries: cfg.HTTPClientMaxRetries,
@@ -45,11 +60,10 @@ func main() {
 	}
 	httpClient := httpclient.NewClient(httpClientConfig)
 
-	// 4. 服务注册
-	// 使用配置文件中的 IP 地址，如果为空则尝试自动获取
+	// 6. 服务注册
 	clientIP := cfg.IPAddress
 	if clientIP == "" {
-		localIP, err := util.GetLocalIP() // 假设 client 包提供这个函数
+		localIP, err := util.GetLocalIP()
 		if err != nil {
 			logrus.Fatalf("Failed to get local IP address for client service: %v", err)
 		}
@@ -67,7 +81,7 @@ func main() {
 	}
 	logrus.Infof("Client service registered with ID: %s", serviceID)
 
-	// 5. 启动心跳
+	// 7. 启动心跳
 	heartbeatStopChan := client.StartHeartbeat(
 		cfg.RegistryAddress,
 		serviceID,
@@ -76,19 +90,18 @@ func main() {
 		cfg.HeartbeatInterval,
 	)
 
-	// 6. 配置 Gin 路由
+	// 8. 配置 Gin 路由
 	router := gin.Default()
-	// 添加中间件，将服务 ID、注册中心地址和 HTTP 客户端注入到 Gin 上下文
 	router.Use(func(c *gin.Context) {
 		c.Set("serviceId", serviceID)
 		c.Set("registryAddr", cfg.RegistryAddress)
-		c.Set("httpClient", httpClient) // 传递 HTTP 客户端实例
+		c.Set("httpClient", httpClient)
 		c.Next()
 	})
 
-	router.GET("/api/getInfo", client.InfoHandler) // 客户端核心 API
+	router.GET("/api/getInfo", client.InfoHandler)
 
-	// 7. 启动 HTTP 服务器
+	// 9. 启动 HTTP 服务器
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{
 		Addr:    addr,
@@ -102,14 +115,12 @@ func main() {
 		}
 	}()
 
-	// 8. 优雅关闭
+	// 10. 优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit // 阻塞直到接收到信号
+	<-quit
 
 	logrus.Info("Shutting down client service...")
-
-	// 停止心跳 Goroutine
 	close(heartbeatStopChan)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -121,7 +132,7 @@ func main() {
 		logrus.Info("Client service stopped gracefully.")
 	}
 
-	// 9. 服务注销
+	// 11. 服务注销
 	err = client.UnregisterService(
 		cfg.RegistryAddress,
 		cfg.ServiceName,

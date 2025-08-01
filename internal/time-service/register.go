@@ -48,19 +48,3 @@ func RegisterService(registryAddr, serviceName, ipAddress string, port int) (str
 	fmt.Printf("Service registered successfully: %s\n", registerResp.Message)
 	return serviceId, nil
 }
-
-//// getLocalIP 获取本机非环回 IPv4 地址 (作为回退/自动检测使用)
-//func GetLocalIP() (string, error) {
-//	addrs, err := net.InterfaceAddrs()
-//	if err != nil {
-//		return "", err
-//	}
-//	for _, address := range addrs {
-//		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-//			if ipnet.IP.To4() != nil {
-//				return ipnet.IP.String(), nil
-//			}
-//		}
-//	}
-//	return "", fmt.Errorf("no non-loopback IPv4 address found")
-//}

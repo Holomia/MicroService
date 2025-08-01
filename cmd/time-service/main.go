@@ -1,36 +1,46 @@
-package main // 这是正确的，表示这是一个可执行程序
+package main
 
 import (
-	"MicroService/pkg/util"
-	"fmt"      // 导入 fmt 包以使用 fmt.Sprintf
-	"net/http" // 导入 net/http 包，以便引用 http.ErrServerClosed
-
-	"MicroService/internal/time-service"        // 导入 time-service 内部逻辑包，路径正确
-	"MicroService/internal/time-service/config" // 导入配置包，路径正确
+	"context"
+	"flag" // 导入 flag 包
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	//"time"
+	"time"
+
+	"MicroService/internal/time-service"
+	"MicroService/internal/time-service/config"
+	"MicroService/pkg/util"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus" // 使用 logrus 进行日志输出
+	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	// 初始化日志
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.DebugLevel) // 根据需要设置日志级别
+	// 1. 定义命令行参数
+	// 为每个需要从命令行配置的字段定义一个 flag
+	portFlag := flag.Int("port", 0, "The port for the time-service to listen on. Overrides config.")
+	registryAddrFlag := flag.String("registry-addr", "", "The address of the registry. Overrides config.")
+	serviceIPFlag := flag.String("ip", "", "The service's IP address. Overrides config.")
+	flag.Parse() // 解析命令行参数
 
-	// 加载配置
-	cfg := config.DefaultTimeServiceConfig()
-	// TODO: 可以从命令行参数、环境变量或配置文件加载覆盖默认配置
-	// 例如：
-	// if err := env.Parse(&cfg); err != nil {
-	//     logrus.Fatalf("Failed to load config from env: %v", err)
-	// }
+	// 2. 加载配置（首先从环境变量和默认值）
+	// LoadTimeServiceConfig 函数会从环境变量加载配置
+	cfg := config.LoadTimeServiceConfig()
+
+	// 3. 使用命令行参数覆盖配置
+	// 如果命令行参数被指定，则使用它的值
+	if *portFlag != 0 {
+		cfg.Port = *portFlag
+	}
+	if *registryAddrFlag != "" {
+		cfg.RegistryAddr = *registryAddrFlag
+	}
+	if *serviceIPFlag != "" {
+		cfg.ServiceHostIP = *serviceIPFlag
+	}
 
 	logrus.Infof("Starting Time-Service on port %d...", cfg.Port)
 
@@ -41,7 +51,6 @@ func main() {
 		logrus.Infof("Using configured IP address: %s", currentIPAddress)
 	} else {
 		var err error
-		// 注意：getLocalIP() 在 internal/time-service 包中，需要正确引用
 		currentIPAddress, err = util.GetLocalIP()
 		if err != nil {
 			logrus.Fatalf("Failed to get local IP address: %v", err)
@@ -63,35 +72,38 @@ func main() {
 	// 初始化 Gin 路由
 	router := gin.Default()
 
-	// 使用中间件将 serviceId 注入到 Gin 上下文
 	router.Use(func(c *gin.Context) {
 		c.Set("serviceId", serviceId)
 		c.Next()
 	})
 
-	// 注册时间服务 API
 	router.GET("/api/getDateTime", timeservice.DateTimeHandler)
 
 	// 启动 HTTP 服务器
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Handler: router,
+	}
+
 	go func() {
-		if err := router.Run(fmt.Sprintf(":%d", cfg.Port)); err != nil && err != http.ErrServerClosed {
-			// 如果不是服务器正常关闭的错误，则记录为致命错误
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logrus.Fatalf("Gin server error: %v", err)
 		}
 	}()
 
-	// 监听操作系统信号，实现优雅关闭
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM) // 监听 Ctrl+C (SIGINT) 和 kill (SIGTERM) 命令
-	<-quit                                               // 阻塞主 Goroutine，直到接收到信号
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 
 	logrus.Info("Shutting down Time-Service...")
-
-	// 停止心跳 Goroutine
-	// 关闭通道会向所有监听该通道的 Goroutine 发送一个零值，从而解除它们的阻塞
 	close(stopHeartbeatChan)
 
-	// 发送注销请求
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logrus.Errorf("Time-Service forced to shutdown: %v", err)
+	}
+
 	err = timeservice.UnregisterService(cfg.RegistryAddr, serviceName, serviceId, currentIPAddress, cfg.Port)
 	if err != nil {
 		logrus.Errorf("Failed to unregister service during shutdown: %v", err)

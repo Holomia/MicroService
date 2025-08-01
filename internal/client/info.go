@@ -64,9 +64,16 @@ func InfoHandler(c *gin.Context) {
 		return
 	}
 
+	//添加调试信息，确认获取的IP和端口
+	logrus.Infof("Discovered time-service instance: ID=%s, IP=%s, Port=%d",
+		timeService.ServiceId, timeService.IpAddress, timeService.Port)
+
 	// 2. 调用 time-service 的 API
 	timeServiceURL := fmt.Sprintf("http://%s:%d/api/getDateTime?style=full", timeService.IpAddress, timeService.Port)
 	var timeResp model.GetDateTimeResponse
+
+	// 在这里添加打印信息，确认将要调用的完整 URL
+	logrus.Infof("Attempting to call time-service at URL: %s", timeServiceURL)
 
 	// 使用 httpclient 的默认配置进行调用，可以根据需要调整
 	httpClientConfig := httpclient.DefaultConfig()
